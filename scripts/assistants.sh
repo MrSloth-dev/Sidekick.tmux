@@ -2,7 +2,7 @@
 
 set -uo pipefail
 
-ASSISTANTS=("claude" "codex" "opencode" "gemini-cli")
+ASSISTANTS=("claude" "codex" "aider" "amazon_q" "copilot" "crush" "cursor" "gemini" "grok" "opencode" "qwen")
 SESSION="sidekick"
 MODE="${1:-toggle}" # toggle | create
 
