@@ -4,7 +4,6 @@ set -uo pipefail
 
 ASSISTANTS=("claude" "codex" "aider" "amazon_q" "copilot" "crush" "cursor" "gemini" "grok" "opencode" "qwen")
 SESSION="sidekick"
-MODE="${1:-toggle}" # toggle | create
 
 get_active_pane() {
 	for ai in "${ASSISTANTS[@]}"; do
@@ -33,28 +32,15 @@ get_sidekick_assistant() {
 prompt_fzf() {
 	for ai in "${ASSISTANTS[@]}"; do
 		if command -v "$ai" &>/dev/null; then
-			echo "✓" $ai
+			echo "✓" "${ai}"
 		else
-			echo "⨉" $ai
+			echo "⨉" "${ai}"
 		fi
-	done | fzf  --tmux \
-				--border-label='Available ' \
-				--header='Please select an assistant'
+	done | fzf  --tmux --border-label='Available ' --header='Please select an assistant'
 	}
 
-create_or_join() {
-	local CMD="$1"
-	if ! tmux has-session -t  "$SESSION" 2>/dev/null; then
-		tmux new-session -d -s "$SESSION" -n "$CMD" "$CMD"
-	elif ! tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q "^${CMD}"; then
-		tmux new-window -t "$SESSION" -n "$CMD" "$CMD"
-	fi
-
-	tmux join-pane -h -s "${SESSION}:${CMD}"
-}
-
 main() {
-	case "$MODE" in
+	case "${1:-toggle}" in
 		toggle)
 			if ACTIVE=$(get_active_pane); then
 				local PANE_ID="${ACTIVE%%:*}"
@@ -66,22 +52,20 @@ main() {
 			elif CMD=$(get_sidekick_assistant); then
 				tmux join-pane -h -s "${SESSION}:${CMD}"
 			else
-				local CHOSEN=$(prompt_fzf)
+				CHOSEN=$(prompt_fzf)
 				if [[ -n $CHOSEN ]]; then
 					CMD="${CHOSEN#* }"
-					create_or_join "$CMD"
+					tmux split-window -dh -l 50% "$CMD"
 				fi
 			fi
 			;;
 		create)
-			local CHOSEN=$(prompt_fzf)
+			CHOSEN=$(prompt_fzf)
 			if [[ -n $CHOSEN ]]; then
 				local CMD="${CHOSEN#* }"
-				create_or_join "$CMD"
+				tmux split-window -dh -l 50% "$CMD"
 			fi
-			;;
 	esac
-
 }
 
 main
