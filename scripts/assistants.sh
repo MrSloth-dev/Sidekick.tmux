@@ -4,42 +4,84 @@ set -uo pipefail
 
 ASSISTANTS=("claude" "codex" "opencode" "gemini-cli")
 SESSION="sidekick"
-CREATE_MODE="${1:-split}"
+MODE="${1:-toggle}" # toggle | create
 
+get_active_pane() {
+	for ai in "${ASSISTANTS[@]}"; do
+		PANE_ID=$(tmux list-panes -F '#{pane_id} #{pane_current_command}' | grep -w "$ai" | awk '{print $1}')
+		if [[ -n $PANE_ID ]]; then
+			echo "$PANE_ID:$ai"
+			return 0
+		fi
+	done
+	return 1
+}
 
-CHOSEN=$(
+get_sidekick_assistant() {
+	if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+		return 1
+	fi
+	for ai in "${ASSISTANTS[@]}"; do
+		if tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q "^${ai}$"; then
+			echo "$ai"
+			return 0
+		fi
+	done
+	return 1
+}
+
+prompt_fzf() {
 	for ai in "${ASSISTANTS[@]}"; do
 		if command -v "$ai" &>/dev/null; then
 			echo "✓" $ai
 		else
 			echo "⨉" $ai
 		fi
-	done | fzf --tmux \
-			   --border-label='Available ' \
-			   --header='Please select an assistant'
-		)
+	done | fzf  --tmux \
+				--border-label='Available ' \
+				--header='Please select an assistant'
+	}
 
-if [[ -n $CHOSEN ]]; then
-	CMD="${CHOSEN#* }"
-	PANE_ID=$(tmux list-panes -F '#{pane_id} #{pane_current_command}' | grep -w "$CMD" | awk '{print $1}')
-
-	if [[ -n $PANE_ID ]]; then
-		tmux break-pane -d -s "$PANE_ID" -t "$SESSION"
-	else
-
-		if ! tmux has-session -t  "$SESSION" 2>/dev/null; then
-			tmux new-session -d -s "$SESSION" -n "$CMD" "$CMD"
-		elif !tmux list-window -t "$SESSION" -F '#{window_name}' | grep -q "^${CMD}"; then
-			tmux new-windows -t "$SESSION" -n "$CMD" "$CMD"
-		fi
-
-		case "$CREATE_MODE" in
-			split)
-				tmux join-pane -h -s "${SESSION}:${CMD}"
-				;;
-			window)
-				tmux link-window -s "${SESSION}:${CMD}"
-				;;
-		esac
+create_or_join() {
+	local CMD="$1"
+	if ! tmux has-session -t  "$SESSION" 2>/dev/null; then
+		tmux new-session -d -s "$SESSION" -n "$CMD" "$CMD"
+	elif ! tmux list-windows -t "$SESSION" -F '#{window_name}' | grep -q "^${CMD}"; then
+		tmux new-window -t "$SESSION" -n "$CMD" "$CMD"
 	fi
-fi
+
+	tmux join-pane -h -s "${SESSION}:${CMD}"
+}
+
+main() {
+	case "$MODE" in
+		toggle)
+			if ACTIVE=$(get_active_pane); then
+				local PANE_ID="${ACTIVE%%:*}"
+				local CMD="${ACTIVE#*:}"
+				if ! tmux has-session -t "$SESSION" 2>/dev/null; then
+					tmux new-session -d -s "$SESSION"
+				fi
+				tmux break-pane -d -n "$CMD" -s "$PANE_ID" -t "$SESSION"
+			elif CMD=$(get_sidekick_assistant); then
+				tmux join-pane -h -s "${SESSION}:${CMD}"
+			else
+				local CHOSEN=$(prompt_fzf)
+				if [[ -n $CHOSEN ]]; then
+					CMD="${CHOSEN#* }"
+					create_or_join "$CMD"
+				fi
+			fi
+			;;
+		create)
+			local CHOSEN=$(prompt_fzf)
+			if [[ -n $CHOSEN ]]; then
+				local CMD="${CHOSEN#* }"
+				create_or_join "$CMD"
+			fi
+			;;
+	esac
+
+}
+
+main
